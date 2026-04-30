@@ -356,10 +356,10 @@ with col1:
         color_continuous_scale=["#00d4aa","#ffd166","#ff6b6b"],
         range_color=[0, 100],
         labels={"resistance_rate": "Resistance %", "organism": ""},
-        **PLOT_CFG,
     )
     fig_bar.update_traces(marker_line_width=0)
     fig_bar.update_layout(
+        **PLOT_CFG,
         coloraxis_showscale=False,
         xaxis=dict(gridcolor="#1e2d40", ticksuffix="%"),
         yaxis=dict(gridcolor="rgba(0,0,0,0)"),
@@ -411,9 +411,9 @@ with col3:
         color_discrete_map=COLORS,
         barmode="stack",
         labels={"count": "Isolates", "city": "", "result": ""},
-        **PLOT_CFG,
     )
     fig_city.update_layout(
+        **PLOT_CFG,
         xaxis=dict(gridcolor="rgba(0,0,0,0)"),
         yaxis=dict(gridcolor="#1e2d40"),
         legend=dict(orientation="h", y=1.08, x=0),
