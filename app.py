@@ -202,7 +202,7 @@ div[data-testid="stPlotlyChart"] { background: transparent !important; }
 """, unsafe_allow_html=True)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-DATA_PATH = "/content/drive/MyDrive/amr_guardian/data/amr_data.csv"
+DATA_PATH = "amr_data.csv"
 PLOT_CFG  = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
                  plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=10,r=10,t=30,b=10))
 COLORS    = {"Resistant": "#ff6b6b", "Susceptible": "#00d4aa", "Intermediate": "#ffd166"}
@@ -220,8 +220,7 @@ def load_data(path: str) -> pd.DataFrame:
 
 def get_groq_client():
     try:
-        from google.colab import userdata
-        api_key = userdata.get("GROQ_API_KEY")
+        api_key = st.secrets["GROQ_API_KEY"]
     except Exception:
         api_key = os.environ.get("GROQ_API_KEY", "")
     if not api_key:
@@ -480,7 +479,7 @@ def color_resistant(val):
 styled = (
     abx_summary[["Antibiotic","Resistant","Susceptible","Intermediate","Total Isolates"]]
     .style
-    .applymap(color_resistant, subset=["Resistant","Susceptible","Intermediate"])
+    .map(color_resistant, subset=["Resistant","Susceptible","Intermediate"])
     .format({"Resistant": "{:.1f}%", "Susceptible": "{:.1f}%", "Intermediate": "{:.1f}%"})
     .set_properties(**{
         "background-color": "#111827",
@@ -581,7 +580,7 @@ with col_btn:
 if send and user_input.strip():
     client = get_groq_client()
     if client is None:
-        st.error("❌ GROQ_API_KEY not found. Add it to Colab Secrets (🔑 icon) as `GROQ_API_KEY`.")
+        st.error("❌ GROQ_API_KEY not found. Add it to Streamlit → Advanced Settings → Secrets.")
     else:
         st.session_state.chat_history.append({"role":"user","content":user_input.strip()})
         with st.spinner("Analyzing with Groq llama-3.1-70b…"):
