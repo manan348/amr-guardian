@@ -350,18 +350,20 @@ with col1:
         .reset_index(name="resistance_rate")
         .sort_values("resistance_rate", ascending=True)
     )
-    fig_bar = px.bar(
-        org_stats, x="resistance_rate", y="organism", orientation="h",
-        color="resistance_rate",
-        color_continuous_scale=["#00d4aa","#ffd166","#ff6b6b"],
-        range_color=[0, 100],
-        labels={"resistance_rate": "Resistance %", "organism": ""},
-    )
-    fig_bar.update_traces(marker_line_width=0)
+    colors_bar = [
+        "#ff6b6b" if v >= 70 else "#ffd166" if v >= 40 else "#00d4aa"
+        for v in org_stats["resistance_rate"]
+    ]
+    fig_bar = go.Figure(go.Bar(
+        x=org_stats["resistance_rate"],
+        y=org_stats["organism"],
+        orientation="h",
+        marker_color=colors_bar,
+        marker_line_width=0,
+    ))
     fig_bar.update_layout(
         **PLOT_CFG,
-        coloraxis_showscale=False,
-        xaxis=dict(gridcolor="#1e2d40", ticksuffix="%"),
+        xaxis=dict(gridcolor="#1e2d40", ticksuffix="%", range=[0,100]),
         yaxis=dict(gridcolor="rgba(0,0,0,0)"),
         height=320,
     )
@@ -402,20 +404,22 @@ col3, col4 = st.columns(2)
 with col3:
     st.markdown('<p class="section-title">City-wise Resistance Breakdown</p>',
                 unsafe_allow_html=True)
-    city_pivot = (
-        fdf.groupby(["city","result"])
-        .size().reset_index(name="count")
-    )
-    fig_city = px.bar(
-        city_pivot, x="city", y="count", color="result",
-        color_discrete_map=COLORS,
-        barmode="stack",
-        labels={"count": "Isolates", "city": "", "result": ""},
-    )
+    fig_city = go.Figure()
+    cities = sorted(fdf["city"].unique())
+    for result_type, color in COLORS.items():
+        counts = [
+            len(fdf[(fdf["city"] == c) & (fdf["result"] == result_type)])
+            for c in cities
+        ]
+        fig_city.add_trace(go.Bar(
+            name=result_type, x=cities, y=counts,
+            marker_color=color,
+        ))
     fig_city.update_layout(
         **PLOT_CFG,
+        barmode="stack",
         xaxis=dict(gridcolor="rgba(0,0,0,0)"),
-        yaxis=dict(gridcolor="#1e2d40"),
+        yaxis=dict(gridcolor="#1e2d40", title="Isolates"),
         legend=dict(orientation="h", y=1.08, x=0),
         height=320,
     )
