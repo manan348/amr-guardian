@@ -203,8 +203,10 @@ div[data-testid="stPlotlyChart"] { background: transparent !important; }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 DATA_PATH = "amr_data.csv"
-PLOT_CFG  = dict(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)",
-                 plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=10,r=10,t=30,b=10))
+PLOT_CFG  = dict(paper_bgcolor="rgba(0,0,0,0)",
+                 plot_bgcolor="rgba(0,0,0,0)",
+                 margin=dict(l=10,r=10,t=30,b=10),
+                 font=dict(color="#e2e8f0"))
 COLORS    = {"Resistant": "#ff6b6b", "Susceptible": "#00d4aa", "Intermediate": "#ffd166"}
 
 @st.cache_data
