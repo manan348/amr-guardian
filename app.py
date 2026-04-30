@@ -589,14 +589,14 @@ if send and user_input.strip():
         st.error("❌ GROQ_API_KEY not found. Add it to Streamlit → Advanced Settings → Secrets.")
     else:
         st.session_state.chat_history.append({"role":"user","content":user_input.strip()})
-        with st.spinner("Analyzing with Groq llama-3.1-70b…"):
+        with st.spinner("Analyzing with Groq llama-3.3-70b…"):
             try:
                 messages_payload = [{"role":"system","content":system_prompt}] + [
                     {"role": m["role"], "content": m["content"]}
                     for m in st.session_state.chat_history
                 ]
                 response = client.chat.completions.create(
-                    model="llama-3.1-70b-versatile",
+                    model="llama-3.3-70b-versatile",
                     messages=messages_payload,
                     temperature=0.3,
                     max_tokens=700,
