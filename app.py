@@ -353,7 +353,11 @@ with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expan
 
     upload_col1, upload_col2 = st.columns([3, 2])
     with upload_col1:
-        uploaded_file = st.file_uploader("Upload .txt lab report", type=["txt"], key="lab_upload")
+        uploaded_file = st.file_uploader(
+            "Upload .txt lab report or .csv data file",
+            type=["txt", "csv"],
+            key="lab_upload",
+        )
         report_text_area = st.text_area(
             "Or paste raw lab report text",
             placeholder="e.g.\nOrganism: Klebsiella pneumoniae\nCeftriaxone: R (MIC >32)\nMeropenem: S\nCity: Lahore\nDate: 2024-03-15",
@@ -366,17 +370,47 @@ with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expan
         parse_btn = st.button("🔬 PARSE REPORT", key="parse_report_btn", use_container_width=True)
 
     raw_report = ""
+    csv_uploaded = False
+
     if uploaded_file is not None:
-        try:
-            raw_report = uploaded_file.read().decode("utf-8")
-        except Exception:
-            st.error("Could not read file. Please upload a valid UTF-8 .txt file.")
+        fname = uploaded_file.name.lower()
+        if fname.endswith(".csv"):
+            # CSV path: try to merge directly into the dataset
+            try:
+                import io
+                csv_df = pd.read_csv(io.BytesIO(uploaded_file.read()))
+                csv_df.columns = csv_df.columns.str.strip().str.lower()
+                required_cols = {"city", "organism", "antibiotic", "result", "date"}
+                if required_cols.issubset(set(csv_df.columns)):
+                    csv_df["date"]       = pd.to_datetime(csv_df["date"], errors="coerce")
+                    csv_df["result"]     = csv_df["result"].str.strip().str.title()
+                    csv_df["organism"]   = csv_df["organism"].str.strip()
+                    csv_df["city"]       = csv_df["city"].str.strip()
+                    csv_df["antibiotic"] = csv_df["antibiotic"].str.strip()
+                    st.session_state.working_df = pd.concat(
+                        [st.session_state.working_df, csv_df], ignore_index=True
+                    )
+                    st.success(f"✅ CSV merged — {len(csv_df)} rows added to dataset. Charts will update on next interaction.")
+                    csv_uploaded = True
+                else:
+                    missing = required_cols - set(csv_df.columns)
+                    st.error(f"CSV is missing required columns: {', '.join(missing)}\n\nRequired: city, organism, antibiotic, result, date")
+            except Exception as e:
+                st.error(f"Could not read CSV: {e}")
+        else:
+            # TXT path: decode for Groq parsing
+            try:
+                raw_report = uploaded_file.read().decode("utf-8")
+            except Exception:
+                st.error("Could not read file. Please upload a valid UTF-8 .txt file.")
     elif report_text_area.strip():
         raw_report = report_text_area.strip()
 
     if parse_btn:
-        if not raw_report.strip():
-            st.warning("Please paste a lab report or upload a .txt file first.")
+        if csv_uploaded:
+            pass  # CSV already merged above, nothing more to do
+        elif not raw_report.strip():
+            st.warning("Please paste a lab report or upload a .txt or .csv file first.")
         else:
             client = get_groq_client()
             if client is None:
