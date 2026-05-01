@@ -375,11 +375,29 @@ with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expan
     if uploaded_file is not None:
         fname = uploaded_file.name.lower()
         if fname.endswith(".csv"):
-            # CSV path: try to merge directly into the dataset
             try:
                 import io
                 csv_df = pd.read_csv(io.BytesIO(uploaded_file.read()))
                 csv_df.columns = csv_df.columns.str.strip().str.lower()
+
+                # Smart column remapping — handle common alternative names
+                col_aliases = {
+                    "organism":   ["pathogen","bacteria","bug","microorganism","organism_name","species"],
+                    "antibiotic": ["drug","antimicrobial","agent","antibiotic_name","abx","medication","antimicrobial_agent"],
+                    "result":     ["susceptibility","interpretation","sir","outcome","mic_interp","category","susceptibility_category"],
+                    "city":       ["location","hospital_city","site","region","hospital","centre","center","facility_city","facility"],
+                    "date":       ["test_date","report_date","collection_date","sample_date","datetime","timestamp","dt","collection_dt"],
+                }
+                rename_map = {}
+                for standard, aliases in col_aliases.items():
+                    if standard not in csv_df.columns:
+                        for alias in aliases:
+                            if alias in csv_df.columns:
+                                rename_map[alias] = standard
+                                break
+                if rename_map:
+                    csv_df = csv_df.rename(columns=rename_map)
+
                 required_cols = {"city", "organism", "antibiotic", "result", "date"}
                 if required_cols.issubset(set(csv_df.columns)):
                     csv_df["date"]       = pd.to_datetime(csv_df["date"], errors="coerce")
@@ -387,18 +405,25 @@ with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expan
                     csv_df["organism"]   = csv_df["organism"].str.strip()
                     csv_df["city"]       = csv_df["city"].str.strip()
                     csv_df["antibiotic"] = csv_df["antibiotic"].str.strip()
+                    csv_df = csv_df[list(required_cols)]
                     st.session_state.working_df = pd.concat(
                         [st.session_state.working_df, csv_df], ignore_index=True
                     )
-                    st.success(f"✅ CSV merged — {len(csv_df)} rows added to dataset. Charts will update on next interaction.")
+                    mapped_note = f" (auto-mapped: {rename_map})" if rename_map else ""
+                    st.success(f"✅ CSV merged — {len(csv_df)} rows added to dataset.{mapped_note}")
                     csv_uploaded = True
                 else:
                     missing = required_cols - set(csv_df.columns)
-                    st.error(f"CSV is missing required columns: {', '.join(missing)}\n\nRequired: city, organism, antibiotic, result, date")
+                    found   = ", ".join(sorted(csv_df.columns.tolist()))
+                    st.error(
+                        f"Could not match all required columns.\n\n"
+                        f"**Columns found in your CSV:** {found}\n\n"
+                        f"**Still missing after auto-map:** {', '.join(sorted(missing))}\n\n"
+                        f"Please rename columns to: city, organism, antibiotic, result, date"
+                    )
             except Exception as e:
                 st.error(f"Could not read CSV: {e}")
         else:
-            # TXT path: decode for Groq parsing
             try:
                 raw_report = uploaded_file.read().decode("utf-8")
             except Exception:
