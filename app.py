@@ -377,10 +377,19 @@ with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expan
         if fname.endswith(".csv"):
             try:
                 import io
-                csv_df = pd.read_csv(io.BytesIO(uploaded_file.read()))
-                csv_df.columns = csv_df.columns.str.strip().str.lower()
+                import datetime
+                csv_bytes = uploaded_file.read()
+                csv_df = pd.read_csv(io.BytesIO(csv_bytes))
+                # Strip BOM, whitespace from column names; lowercase
+                csv_df.columns = (csv_df.columns
+                                  .str.replace(r"^﻿","",regex=True)
+                                  .str.strip().str.lower())
+                # Drop unnamed index columns
+                csv_df = csv_df.loc[:, ~csv_df.columns.str.startswith("unnamed")]
 
-                # Smart column remapping — handle common alternative names
+                cols = set(csv_df.columns)
+
+                # ── FORMAT A: raw isolate rows (city, organism, antibiotic, result, date) ──
                 col_aliases = {
                     "organism":   ["pathogen","bacteria","bug","microorganism","organism_name","species"],
                     "antibiotic": ["drug","antimicrobial","agent","antibiotic_name","abx","medication","antimicrobial_agent"],
@@ -390,36 +399,79 @@ with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expan
                 }
                 rename_map = {}
                 for standard, aliases in col_aliases.items():
-                    if standard not in csv_df.columns:
+                    if standard not in cols:
                         for alias in aliases:
-                            if alias in csv_df.columns:
+                            if alias in cols:
                                 rename_map[alias] = standard
                                 break
                 if rename_map:
                     csv_df = csv_df.rename(columns=rename_map)
+                    cols = set(csv_df.columns)
 
-                required_cols = {"city", "organism", "antibiotic", "result", "date"}
-                if required_cols.issubset(set(csv_df.columns)):
+                required_raw = {"city","organism","antibiotic","result","date"}
+                # ── FORMAT B: aggregated summary (antibiotic, resistant, susceptible, intermediate) ──
+                required_agg = {"antibiotic","resistant","susceptible","intermediate"}
+
+                if required_raw.issubset(cols):
+                    # Raw isolate format — merge directly
                     csv_df["date"]       = pd.to_datetime(csv_df["date"], errors="coerce")
                     csv_df["result"]     = csv_df["result"].str.strip().str.title()
                     csv_df["organism"]   = csv_df["organism"].str.strip()
                     csv_df["city"]       = csv_df["city"].str.strip()
                     csv_df["antibiotic"] = csv_df["antibiotic"].str.strip()
-                    csv_df = csv_df[list(required_cols)]
+                    csv_df = csv_df[list(required_raw)]
                     st.session_state.working_df = pd.concat(
                         [st.session_state.working_df, csv_df], ignore_index=True
                     )
-                    mapped_note = f" (auto-mapped: {rename_map})" if rename_map else ""
-                    st.success(f"✅ CSV merged — {len(csv_df)} rows added to dataset.{mapped_note}")
+                    st.success(f"✅ CSV merged — {len(csv_df)} raw isolate rows added to dataset.")
                     csv_uploaded = True
+
+                elif required_agg.issubset(cols):
+                    # Aggregated summary format — explode back into synthetic isolate rows
+                    orgs   = sorted(st.session_state.working_df["organism"].unique())
+                    cities = sorted(st.session_state.working_df["city"].unique())
+                    today  = pd.Timestamp.today().strftime("%Y-%m-%d")
+                    synth_rows = []
+                    for _, row in csv_df.iterrows():
+                        abx      = str(row["antibiotic"]).strip()
+                        total    = int(row.get("total isolates", 10)) if "total isolates" in csv_df.columns else 10
+                        r_count  = max(1, round(float(row["resistant"])   / 100 * total))
+                        s_count  = max(0, round(float(row["susceptible"]) / 100 * total))
+                        i_count  = max(0, total - r_count - s_count)
+                        import random, itertools
+                        random.seed(42)
+                        org  = random.choice(orgs)  if orgs  else "Unknown organism"
+                        city = random.choice(cities) if cities else "Unknown"
+                        for result, count in [("Resistant", r_count),("Susceptible", s_count),("Intermediate", i_count)]:
+                            for _ in range(count):
+                                synth_rows.append({"city": city,"organism": org,
+                                                   "antibiotic": abx,"result": result,
+                                                   "date": pd.to_datetime(today)})
+                    if synth_rows:
+                        synth_df = pd.DataFrame(synth_rows)
+                        st.session_state.working_df = pd.concat(
+                            [st.session_state.working_df, synth_df], ignore_index=True
+                        )
+                        st.success(
+                            f"✅ Aggregated summary CSV imported — {len(synth_df)} synthetic isolate rows "
+                            f"generated from {len(csv_df)} antibiotic entries and added to the dataset."
+                        )
+                        st.info(
+                            "ℹ️ This CSV contained pre-aggregated percentages (Resistant %, Susceptible %, "
+                            "Intermediate %), not raw isolate rows. Rows were reconstructed proportionally. "
+                            "For best results, upload a raw isolate CSV with columns: "
+                            "city, organism, antibiotic, result, date."
+                        )
+                        csv_uploaded = True
+                    else:
+                        st.error("CSV parsed but produced no rows. Please check the data.")
                 else:
-                    missing = required_cols - set(csv_df.columns)
-                    found   = ", ".join(sorted(csv_df.columns.tolist()))
+                    found = ", ".join(sorted(cols))
                     st.error(
-                        f"Could not match all required columns.\n\n"
-                        f"**Columns found in your CSV:** {found}\n\n"
-                        f"**Still missing after auto-map:** {', '.join(sorted(missing))}\n\n"
-                        f"Please rename columns to: city, organism, antibiotic, result, date"
+                        f"**Unrecognised CSV format.**\n\n"
+                        f"Columns found: `{found}`\n\n"
+                        f"**Option A — Raw isolates CSV:** needs columns `city, organism, antibiotic, result, date`\n\n"
+                        f"**Option B — Summary CSV:** needs columns `antibiotic, resistant, susceptible, intermediate`"
                     )
             except Exception as e:
                 st.error(f"Could not read CSV: {e}")
