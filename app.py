@@ -293,10 +293,29 @@ if "working_df" not in st.session_state:
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<p class="amr-title" style="font-size:1.2rem">🧬 AMR Guardian</p>',
-                unsafe_allow_html=True)
-    st.markdown('<p class="amr-subtitle">Pakistan Resistance Tracker</p>',
-                unsafe_allow_html=True)
+    st.markdown("""
+<div style="display:flex;align-items:center;gap:10px;padding:8px 0 12px">
+  <svg width="36" height="36" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="32" cy="32" r="30" stroke="#00d4aa" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.4"/>
+    <circle cx="32" cy="32" r="22" fill="#0d2e26" stroke="#00d4aa" stroke-width="1.5"/>
+    <path d="M24 18 C24 22 28 24 28 28 C28 32 24 34 24 38 C24 42 28 44 28 46"
+          stroke="#00d4aa" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <path d="M40 18 C40 22 36 24 36 28 C36 32 40 34 40 38 C40 42 36 44 36 46"
+          stroke="#ffd166" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <line x1="24" y1="22" x2="40" y2="22" stroke="#00d4aa" stroke-width="1.2" opacity="0.7"/>
+    <line x1="28" y1="28" x2="36" y2="28" stroke="#00d4aa" stroke-width="1.2" opacity="0.7"/>
+    <line x1="24" y1="34" x2="40" y2="34" stroke="#ffd166" stroke-width="1.2" opacity="0.7"/>
+    <line x1="28" y1="40" x2="36" y2="40" stroke="#ffd166" stroke-width="1.2" opacity="0.7"/>
+    <circle cx="32" cy="32" r="2.5" fill="#00d4aa"/>
+  </svg>
+  <div>
+    <div style="font-family:'Space Mono',monospace;font-size:1rem;font-weight:700;
+                color:#00d4aa;letter-spacing:-0.5px;line-height:1">AMR Guardian</div>
+    <div style="font-family:'Space Mono',monospace;font-size:0.65rem;color:#64748b;
+                margin-top:3px;letter-spacing:0.5px">Pakistan · WHO GLASS 2023</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
     st.markdown("---")
 
     wdf = st.session_state.working_df
@@ -1009,7 +1028,7 @@ SURVEILLANCE DATA FOR {bulletin_city.upper()}:
 
 # ── Groq Chatbot ──────────────────────────────────────────────────────────────
 st.markdown("---")
-st.markdown('<p class="section-title">🤖 Lab Report Interpreter — Powered by Groq</p>',
+st.markdown('<p class="section-title">🔬 Lab Report Interpreter — Powered by Groq</p>',
             unsafe_allow_html=True)
 
 if "chat_history" not in st.session_state:
@@ -1052,7 +1071,8 @@ GUIDELINES:
 chat_html = '<div class="chat-wrap" id="chat-scroll">'
 for msg in st.session_state.chat_history:
     role = msg["role"]
-    avatar   = "🧬" if role == "assistant" else "👨‍⚕️"
+    avatar_svg = '''<svg width="18" height="18" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="22" fill="#0d2e26" stroke="#00d4aa" stroke-width="2"/><path d="M24 18 C24 22 28 24 28 28 C28 32 24 34 24 38 C24 42 28 44 28 46" stroke="#00d4aa" stroke-width="2.5" stroke-linecap="round" fill="none"/><path d="M40 18 C40 22 36 24 36 28 C36 32 40 34 40 38 C40 42 36 44 36 46" stroke="#ffd166" stroke-width="2.5" stroke-linecap="round" fill="none"/><line x1="24" y1="28" x2="40" y2="28" stroke="#00d4aa" stroke-width="1.5" opacity="0.8"/><line x1="24" y1="36" x2="40" y2="36" stroke="#ffd166" stroke-width="1.5" opacity="0.8"/><circle cx="32" cy="32" r="2.5" fill="#00d4aa"/></svg>'''
+    avatar   = avatar_svg if role == "assistant" else "👨‍⚕️"
     av_class = "bot" if role == "assistant" else "user-av"
     side     = "assistant" if role == "assistant" else "user"
     content  = msg["content"].replace("\n", "<br>")
