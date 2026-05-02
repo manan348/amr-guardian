@@ -599,59 +599,65 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown('<p class="section-title">Resistance Rate by Organism</p>',
                 unsafe_allow_html=True)
-    org_stats = (
-        fdf.groupby("organism")["result"]
-        .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
-        .reset_index(name="resistance_rate")
-        .sort_values("resistance_rate", ascending=True)
-    )
-    colors_bar = [
-        "#ff6b6b" if v >= 70 else "#ffd166" if v >= 40 else "#00d4aa"
-        for v in org_stats["resistance_rate"]
-    ]
-    fig_bar = go.Figure(go.Bar(
-        x=org_stats["resistance_rate"],
-        y=org_stats["organism"],
-        orientation="h",
-        marker_color=colors_bar,
-        marker_line_width=0,
-    ))
-    fig_bar.update_layout(
-        **PLOT_CFG,
-        xaxis=dict(gridcolor="#1e2d40", ticksuffix="%", range=[0, 100]),
-        yaxis=dict(gridcolor="rgba(0,0,0,0)"),
-        height=320,
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    if fdf.empty:
+        st.info("No data matches the current filters — adjust the sidebar selections to see this chart.")
+    else:
+        org_stats = (
+            fdf.groupby("organism")["result"]
+            .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
+            .reset_index(name="resistance_rate")
+            .sort_values("resistance_rate", ascending=True)
+        )
+        colors_bar = [
+            "#ff6b6b" if v >= 70 else "#ffd166" if v >= 40 else "#00d4aa"
+            for v in org_stats["resistance_rate"]
+        ]
+        fig_bar = go.Figure(go.Bar(
+            x=org_stats["resistance_rate"],
+            y=org_stats["organism"],
+            orientation="h",
+            marker_color=colors_bar,
+            marker_line_width=0,
+        ))
+        fig_bar.update_layout(
+            **PLOT_CFG,
+            xaxis=dict(gridcolor="#1e2d40", ticksuffix="%", range=[0, 100]),
+            yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+            height=320,
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
 
 with col2:
     st.markdown('<p class="section-title">Resistance Trend Over Time</p>',
                 unsafe_allow_html=True)
-    trend = (
-        fdf.set_index("date")["result"]
-        .resample("2W")
-        .apply(lambda s: round((s == "Resistant").mean() * 100, 1) if len(s) else None)
-        .dropna()
-        .reset_index(name="resistance_rate")
-    )
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(
-        x=trend["date"], y=trend["resistance_rate"],
-        mode="lines+markers",
-        line=dict(color="#00d4aa", width=2.5, shape="spline"),
-        marker=dict(size=6, color="#00d4aa", line=dict(width=1.5, color="#0a0e1a")),
-        fill="tozeroy",
-        fillcolor="rgba(0,212,170,0.08)",
-        name="Resistance %",
-    ))
-    fig_line.update_layout(
-        **PLOT_CFG,
-        xaxis=dict(gridcolor="#1e2d40"),
-        yaxis=dict(gridcolor="#1e2d40", ticksuffix="%", range=[0, 100]),
-        showlegend=False,
-        height=320,
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
+    if fdf.empty:
+        st.info("No data matches the current filters — adjust the sidebar selections to see the trend chart.")
+    else:
+        trend = (
+            fdf.set_index("date")["result"]
+            .resample("2W")
+            .apply(lambda s: round((s == "Resistant").mean() * 100, 1) if len(s) else None)
+            .dropna()
+            .reset_index(name="resistance_rate")
+        )
+        fig_line = go.Figure()
+        fig_line.add_trace(go.Scatter(
+            x=trend["date"], y=trend["resistance_rate"],
+            mode="lines+markers",
+            line=dict(color="#00d4aa", width=2.5, shape="spline"),
+            marker=dict(size=6, color="#00d4aa", line=dict(width=1.5, color="#0a0e1a")),
+            fill="tozeroy",
+            fillcolor="rgba(0,212,170,0.08)",
+            name="Resistance %",
+        ))
+        fig_line.update_layout(
+            **PLOT_CFG,
+            xaxis=dict(gridcolor="#1e2d40"),
+            yaxis=dict(gridcolor="#1e2d40", ticksuffix="%", range=[0, 100]),
+            showlegend=False,
+            height=320,
+        )
+        st.plotly_chart(fig_line, use_container_width=True)
 
 # ── Charts: row 2 ─────────────────────────────────────────────────────────────
 col3, col4 = st.columns(2)
@@ -683,84 +689,90 @@ with col3:
 with col4:
     st.markdown('<p class="section-title">Resistance Heatmap (Organism × City)</p>',
                 unsafe_allow_html=True)
-    heat = (
-        fdf.groupby(["organism", "city"])["result"]
-        .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
-        .unstack(fill_value=0)
-    )
-    heat.index = (heat.index
-        .str.replace("Escherichia coli",        "E. coli")
-        .str.replace("Klebsiella pneumoniae",    "K. pneumoniae")
-        .str.replace("Streptococcus pneumoniae", "S. pneumoniae")
-    )
-    fig_heat = go.Figure(go.Heatmap(
-        z=heat.values,
-        x=heat.columns.tolist(),
-        y=heat.index.tolist(),
-        colorscale=[[0, "#0d2e26"], [0.5, "#ffd166"], [1, "#ff6b6b"]],
-        zmin=0, zmax=100,
-        text=heat.values,
-        texttemplate="%{text}%",
-        textfont=dict(family="Space Mono", size=11),
-        colorbar=dict(ticksuffix="%", tickfont=dict(family="Space Mono", size=10)),
-    ))
-    fig_heat.update_layout(
-        **PLOT_CFG,
-        xaxis=dict(side="bottom"),
-        height=320,
-    )
-    st.plotly_chart(fig_heat, use_container_width=True)
+    if fdf.empty:
+        st.info("No data matches the current filters — adjust the sidebar selections to see the heatmap.")
+    else:
+        heat = (
+            fdf.groupby(["organism", "city"])["result"]
+            .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
+            .unstack(fill_value=0)
+        )
+        heat.index = (heat.index
+            .str.replace("Escherichia coli",        "E. coli")
+            .str.replace("Klebsiella pneumoniae",    "K. pneumoniae")
+            .str.replace("Streptococcus pneumoniae", "S. pneumoniae")
+        )
+        fig_heat = go.Figure(go.Heatmap(
+            z=heat.values,
+            x=heat.columns.tolist(),
+            y=heat.index.tolist(),
+            colorscale=[[0, "#0d2e26"], [0.5, "#ffd166"], [1, "#ff6b6b"]],
+            zmin=0, zmax=100,
+            text=heat.values,
+            texttemplate="%{text}%",
+            textfont=dict(family="Space Mono", size=11),
+            colorbar=dict(ticksuffix="%", tickfont=dict(family="Space Mono", size=10)),
+        ))
+        fig_heat.update_layout(
+            **PLOT_CFG,
+            xaxis=dict(side="bottom"),
+            height=320,
+        )
+        st.plotly_chart(fig_heat, use_container_width=True)
 
 # ── Antibiotic breakdown table ─────────────────────────────────────────────────
 st.markdown('<p class="section-title">Antibiotic Resistance Summary</p>',
             unsafe_allow_html=True)
-abx_summary = (
-    fdf.groupby("antibiotic")["result"]
-    .value_counts(normalize=True)
-    .mul(100).round(1)
-    .unstack(fill_value=0)
-    .reset_index()
-)
-for col in ["Resistant", "Susceptible", "Intermediate"]:
-    if col not in abx_summary.columns:
-        abx_summary[col] = 0.0
-abx_summary = abx_summary.rename(columns={"antibiotic": "Antibiotic"})
-abx_summary["Total Isolates"] = fdf.groupby("antibiotic").size().values
-abx_summary = abx_summary.sort_values("Resistant", ascending=False)
+if fdf.empty:
+    st.info("No data matches the current filters — adjust the sidebar selections to see the antibiotic table.")
+else:
+    abx_summary = (
+        fdf.groupby("antibiotic")["result"]
+        .value_counts(normalize=True)
+        .mul(100).round(1)
+        .unstack(fill_value=0)
+        .reset_index()
+    )
+    for col in ["Resistant", "Susceptible", "Intermediate"]:
+        if col not in abx_summary.columns:
+            abx_summary[col] = 0.0
+    abx_summary = abx_summary.rename(columns={"antibiotic": "Antibiotic"})
+    abx_summary["Total Isolates"] = fdf.groupby("antibiotic").size().values
+    abx_summary = abx_summary.sort_values("Resistant", ascending=False)
 
-def color_resistant(val):
-    if isinstance(val, float):
-        if val >= 70:   return "color: #ff6b6b; font-weight: 600"
-        elif val >= 50: return "color: #ffd166"
-        else:           return "color: #00d4aa"
-    return ""
+    def color_resistant(val):
+        if isinstance(val, float):
+            if val >= 70:   return "color: #ff6b6b; font-weight: 600"
+            elif val >= 50: return "color: #ffd166"
+            else:           return "color: #00d4aa"
+        return ""
 
-styled = (
-    abx_summary[["Antibiotic", "Resistant", "Susceptible", "Intermediate", "Total Isolates"]]
-    .style
-    .map(color_resistant, subset=["Resistant", "Susceptible", "Intermediate"])
-    .format({"Resistant": "{:.1f}%", "Susceptible": "{:.1f}%", "Intermediate": "{:.1f}%"})
-    .set_properties(**{
-        "background-color": "#111827",
-        "color":            "#e2e8f0",
-        "border-color":     "#1e2d40",
-        "font-family":      "DM Sans, sans-serif",
-        "font-size":        "0.9rem",
-    })
-    .set_table_styles([
-        {"selector": "th", "props": [
-            ("background-color", "#0a0e1a"),
-            ("color",            "#64748b"),
-            ("font-family",      "Space Mono, monospace"),
-            ("font-size",        "0.72rem"),
-            ("letter-spacing",   "1px"),
-            ("text-transform",   "uppercase"),
-            ("border-bottom",    "1px solid #1e2d40"),
-        ]},
-        {"selector": "tr:hover td", "props": [("background-color", "#1a2744")]},
-    ])
-)
-st.dataframe(styled, use_container_width=True, height=220)
+    styled = (
+        abx_summary[["Antibiotic", "Resistant", "Susceptible", "Intermediate", "Total Isolates"]]
+        .style
+        .map(color_resistant, subset=["Resistant", "Susceptible", "Intermediate"])
+        .format({"Resistant": "{:.1f}%", "Susceptible": "{:.1f}%", "Intermediate": "{:.1f}%"})
+        .set_properties(**{
+            "background-color": "#111827",
+            "color":            "#e2e8f0",
+            "border-color":     "#1e2d40",
+            "font-family":      "DM Sans, sans-serif",
+            "font-size":        "0.9rem",
+        })
+        .set_table_styles([
+            {"selector": "th", "props": [
+                ("background-color", "#0a0e1a"),
+                ("color",            "#64748b"),
+                ("font-family",      "Space Mono, monospace"),
+                ("font-size",        "0.72rem"),
+                ("letter-spacing",   "1px"),
+                ("text-transform",   "uppercase"),
+                ("border-bottom",    "1px solid #1e2d40"),
+            ]},
+            {"selector": "tr:hover td", "props": [("background-color", "#1a2744")]},
+        ])
+    )
+    st.dataframe(styled, use_container_width=True, height=220)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK 3 — Pakistan City Choropleth / Bubble Map
