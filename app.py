@@ -47,10 +47,12 @@ html, body, [class*="css"] {
 .amr-header {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 28px 0 8px;
+    gap: 20px;
+    padding: 24px 0 20px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 28px;
+    background: linear-gradient(90deg, rgba(0,212,170,0.04) 0%, transparent 60%);
+    border-radius: 0 0 0 0;
 }
 .amr-title {
     font-family: 'Space Mono', monospace;
@@ -337,10 +339,53 @@ if sel_city != "All": fdf = fdf[fdf["city"]        == sel_city]
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="amr-header">
-  <div>
-    <p class="amr-title">🧬 AMR Guardian</p>
-    <p class="amr-subtitle">Antimicrobial Resistance Surveillance · Pakistan 2023</p>
+
+  <!-- SVG Wordmark Logo -->
+  <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Outer ring -->
+    <circle cx="32" cy="32" r="30" stroke="#00d4aa" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.4"/>
+    <!-- Inner circle -->
+    <circle cx="32" cy="32" r="22" fill="#0d2e26" stroke="#00d4aa" stroke-width="1.5"/>
+    <!-- DNA helix left strand -->
+    <path d="M24 18 C24 22 28 24 28 28 C28 32 24 34 24 38 C24 42 28 44 28 46"
+          stroke="#00d4aa" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <!-- DNA helix right strand -->
+    <path d="M40 18 C40 22 36 24 36 28 C36 32 40 34 40 38 C40 42 36 44 36 46"
+          stroke="#ffd166" stroke-width="2" stroke-linecap="round" fill="none"/>
+    <!-- Cross-links -->
+    <line x1="24" y1="22" x2="40" y2="22" stroke="#00d4aa" stroke-width="1.2" opacity="0.7"/>
+    <line x1="28" y1="28" x2="36" y2="28" stroke="#00d4aa" stroke-width="1.2" opacity="0.7"/>
+    <line x1="24" y1="34" x2="40" y2="34" stroke="#ffd166" stroke-width="1.2" opacity="0.7"/>
+    <line x1="28" y1="40" x2="36" y2="40" stroke="#ffd166" stroke-width="1.2" opacity="0.7"/>
+    <!-- Shield overlay bottom -->
+    <path d="M26 44 Q32 48 38 44" stroke="#00d4aa" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <!-- Pulse dot -->
+    <circle cx="32" cy="32" r="2.5" fill="#00d4aa"/>
+    <circle cx="32" cy="32" r="2.5" fill="#00d4aa" opacity="0.3">
+      <animate attributeName="r" values="2.5;6;2.5" dur="2.5s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0.3;0;0.3" dur="2.5s" repeatCount="indefinite"/>
+    </circle>
+  </svg>
+
+  <div style="flex:1">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <p class="amr-title" style="margin:0">AMR Guardian</p>
+      <span style="font-family:'Space Mono',monospace;font-size:0.65rem;letter-spacing:2px;
+                   color:#00d4aa;background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.3);
+                   padding:3px 10px;border-radius:20px;">LIVE · v24</span>
+    </div>
+    <p class="amr-subtitle" style="margin:6px 0 0">
+      Antimicrobial Resistance Surveillance &nbsp;·&nbsp; Pakistan &nbsp;·&nbsp; WHO GLASS 2023
+    </p>
   </div>
+
+  <!-- Right side stats pill -->
+  <div style="text-align:right;font-family:'Space Mono',monospace;font-size:0.7rem;
+              color:#64748b;line-height:1.8;display:none" class="header-meta">
+    <div style="color:#00d4aa;font-weight:700">🇵🇰 5 Cities</div>
+    <div>Groq · llama-3.3-70b</div>
+  </div>
+
 </div>
 """, unsafe_allow_html=True)
 
