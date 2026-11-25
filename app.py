@@ -714,7 +714,7 @@ with col4:
             .str.replace("Streptococcus pneumoniae", "S. pneumoniae")
         )
         cell_text = [
-            [("" if pd.isna(v) else f"{v}%" + ("*" if n < MIN_ISOLATES else ""))
+            [("" if pd.isna(v) else f"{v:.0f}%" + ("*" if n < MIN_ISOLATES else ""))
              for v, n in zip(row_v, row_n)]
             for row_v, row_n in zip(heat.values, heat_n.values)
         ]
@@ -728,7 +728,7 @@ with col4:
             customdata=heat_n.values,
             hovertemplate="%{y} · %{x}<br>Resistance: %{z}%<br>Isolates: %{customdata}<extra></extra>",
             texttemplate="%{text}",
-            textfont=dict(family="Space Mono", size=11),
+            textfont=dict(family="Space Mono", size=10),
             colorbar=dict(ticksuffix="%", tickfont=dict(family="Space Mono", size=10)),
         ))
         fig_heat.update_layout(
@@ -798,7 +798,7 @@ else:
             {"selector": "tr:hover td", "props": [("background-color", "#1a2744")]},
         ])
     )
-    st.dataframe(styled, use_container_width=True, height=220)
+    st.dataframe(styled, use_container_width=True, height=220, hide_index=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK 3 — Pakistan City Choropleth / Bubble Map
@@ -824,12 +824,16 @@ if not map_df.empty:
     fig_map.add_trace(go.Scattergeo(
         lat=map_df["lat"],
         lon=map_df["lon"],
-        text=map_df.apply(
+        text=map_df["city"],                       # short label on the map
+        hovertext=map_df.apply(                    # full details on hover
             lambda r: f"{r['city']}<br>Resistance: {r['resistance_rate']}%<br>Isolates: {int(r['isolates'])}",
             axis=1,
         ),
         mode="markers+text",
-        textposition="top center",
+        # Nearby cities (Islamabad/Rawalpindi ~15 km apart, Faisalabad/Lahore) get side labels
+        textposition=[{"Rawalpindi": "middle right", "Faisalabad": "middle left",
+                       "Multan": "bottom center"}.get(c, "top center")
+                      for c in map_df["city"]],
         textfont=dict(family="Space Mono", size=11, color="#e2e8f0"),
         marker=dict(
             size=map_df["isolates"] / map_df["isolates"].max() * 40 + 18,
@@ -848,23 +852,25 @@ if not map_df.empty:
             opacity=0.88,
         ),
         hoverinfo="text",
+        hovertemplate="%{hovertext}<extra></extra>",
     ))
     fig_map.update_layout(
         geo=dict(
+            # A fixed lat/lon window frames Pakistan; combining it with center +
+            # projection_scale made Plotly zoom into the wrong area.
             scope="asia",
-            center=dict(lat=30.3753, lon=69.3451),
-            projection_scale=5,
+            projection_type="mercator",
             showland=True,
             landcolor="#111827",
             showocean=True,
             oceancolor="#0a0e1a",
             showcountries=True,
-            countrycolor="#1e2d40",
+            countrycolor="#3b5068",
             showcoastlines=True,
-            coastlinecolor="#1e2d40",
+            coastlinecolor="#3b5068",
             bgcolor="rgba(0,0,0,0)",
-            lataxis_range=[23, 38],
-            lonaxis_range=[60, 78],
+            lataxis_range=[23.5, 37.5],
+            lonaxis_range=[60.5, 78],
         ),
         paper_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=0, r=0, t=0, b=0),
