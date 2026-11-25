@@ -1,0 +1,16 @@
+data:
+  n_rows: 300
+  seed: 42
+  intermediate_share: 0.10
+  cities:
+    - Karachi
+    - Lahore
+    - Islamabad
+    - Peshawar
+    - Quetta
+    - Rawalpindi
+    - Faisalabad
+    - Multan
+
+antibiogram:
+  min_isolates: 30

@@ -4,16 +4,22 @@ Deploy on Streamlit Community Cloud.
 """
 
 import os
+import io
 import json
+import html
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from groq import Groq
 
+from amr_utils import (
+    RESULT_COLS, clean_records, standardize_columns, missing_columns,
+    parse_llm_records, resistance_rate, rate_table,
+)
+
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="AMR Guardian",
-    page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -242,17 +248,33 @@ CITY_COORDS = {
     "Islamabad": {"lat": 33.6844, "lon": 73.0479},
     "Peshawar":  {"lat": 34.0151, "lon": 71.5249},
     "Quetta":    {"lat": 30.1798, "lon": 66.9750},
+    "Rawalpindi":{"lat": 33.5651, "lon": 73.0169},
+    "Faisalabad":{"lat": 31.4504, "lon": 73.1350},
+    "Multan":    {"lat": 30.1575, "lon": 71.5249},
 }
+
+GROQ_MODEL        = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+MAX_AI_CALLS      = 20   # per browser session — protects the shared API quota
+CHAT_HISTORY_SENT = 10   # only the last N chat messages are sent to the model
+MIN_ISOLATES      = 30   # CLSI M39: rates from fewer isolates are unreliable
+
+def esc(value) -> str:
+    """HTML-escape any user- or LLM-provided value before it goes into raw HTML."""
+    return html.escape(str(value))
+
+def ai_quota_ok() -> bool:
+    """Per-session limit on Groq calls. Shows an error and returns False when exhausted."""
+    used = st.session_state.get("ai_calls", 0)
+    if used >= MAX_AI_CALLS:
+        st.error(f"AI request limit reached for this session ({MAX_AI_CALLS}). "
+                 "Reload the page to start a new session.")
+        return False
+    st.session_state.ai_calls = used + 1
+    return True
 
 @st.cache_data
 def load_data(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    df.columns = df.columns.str.strip().str.lower()
-    df["date"]      = pd.to_datetime(df["date"], errors="coerce")
-    df["result"]    = df["result"].str.strip().str.title()
-    df["organism"]  = df["organism"].str.strip()
-    df["city"]      = df["city"].str.strip()
-    df["antibiotic"]= df["antibiotic"].str.strip()
+    df, _ = clean_records(standardize_columns(pd.read_csv(path)))
     return df
 
 def get_groq_client():
@@ -269,13 +291,13 @@ try:
     df = load_data(DATA_PATH)
     data_ok = True
 except FileNotFoundError:
-    st.warning(f"⚠️ Data file not found at `{DATA_PATH}`. Using demo data.")
+    st.warning(f"Data file not found at `{DATA_PATH}`. Using demo data.")
     import numpy as np
     np.random.seed(42)
     orgs   = ["Escherichia coli","Klebsiella pneumoniae","Acinetobacter spp.",
                "Salmonella spp.","Streptococcus pneumoniae"]
     abx    = ["Ceftriaxone","Meropenem","Co-trimoxazole","Ampicillin","Ciprofloxacin"]
-    cities = ["Karachi","Lahore","Islamabad","Peshawar","Quetta"]
+    cities = list(CITY_COORDS.keys())
     n = 300
     df = pd.DataFrame({
         "city":       np.random.choice(cities, n),
@@ -391,7 +413,7 @@ st.markdown("""
       <p class="amr-title" style="margin:0">AMR Guardian</p>
       <span style="font-family:'Space Mono',monospace;font-size:0.65rem;letter-spacing:2px;
                    color:#00d4aa;background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.3);
-                   padding:3px 10px;border-radius:20px;">LIVE · v24</span>
+                   padding:3px 10px;border-radius:20px;">DEMO DATA</span>
     </div>
     <p class="amr-subtitle" style="margin:6px 0 0">
       Antimicrobial Resistance Surveillance &nbsp;·&nbsp; Pakistan &nbsp;·&nbsp; WHO GLASS 2023
@@ -401,18 +423,22 @@ st.markdown("""
   <!-- Right side stats pill -->
   <div style="text-align:right;font-family:'Space Mono',monospace;font-size:0.7rem;
               color:#64748b;line-height:1.8;display:none" class="header-meta">
-    <div style="color:#00d4aa;font-weight:700">🇵🇰 5 Cities</div>
-    <div>Groq · llama-3.3-70b</div>
   </div>
 
 </div>
 """, unsafe_allow_html=True)
 
+st.info(
+    "**Demo dataset.** The bundled `amr_data.csv` is synthetic: each organism–antibiotic "
+    "result is sampled from national WHO GLASS Pakistan 2023 resistance rates, but cities and "
+    "dates are assigned at random. City, map and trend patterns are illustrative only. "
+    "Upload your own lab data for real surveillance."
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK 2 — File Upload Tab for Lab Reports
 # ══════════════════════════════════════════════════════════════════════════════
-with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expanded=False):
-    st.markdown('<div class="upload-card">', unsafe_allow_html=True)
+with st.expander("Upload Lab Report — Auto-parse & Add to Dataset", expanded=False):
     st.markdown('<p class="section-title">Lab Report Parser</p>', unsafe_allow_html=True)
 
     upload_col1, upload_col2 = st.columns([3, 2])
@@ -431,199 +457,121 @@ with st.expander("📤 Upload Lab Report — Auto-parse & Add to Dataset", expan
 
     with upload_col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        parse_btn = st.button("🔬 PARSE REPORT", key="parse_report_btn", use_container_width=True)
+        parse_btn = st.button("PARSE REPORT", key="parse_report_btn", use_container_width=True)
+        st.caption("CSV files need the columns `city, organism, antibiotic, result, date` "
+                   "(result may be S/I/R or full words).")
 
-    raw_report = ""
-    csv_uploaded = False
-
-    if uploaded_file is not None:
-        fname = uploaded_file.name.lower()
-        if fname.endswith(".csv"):
-            try:
-                import io
-                import datetime
-                csv_bytes = uploaded_file.read()
-                csv_df = pd.read_csv(io.BytesIO(csv_bytes))
-                # Strip BOM, whitespace from column names; lowercase
-                csv_df.columns = (csv_df.columns
-                                  .str.replace(r"^﻿","",regex=True)
-                                  .str.strip().str.lower())
-                # Drop unnamed index columns
-                csv_df = csv_df.loc[:, ~csv_df.columns.str.startswith("unnamed")]
-
-                cols = set(csv_df.columns)
-
-                # ── FORMAT A: raw isolate rows (city, organism, antibiotic, result, date) ──
-                col_aliases = {
-                    "organism":   ["pathogen","bacteria","bug","microorganism","organism_name","species"],
-                    "antibiotic": ["drug","antimicrobial","agent","antibiotic_name","abx","medication","antimicrobial_agent"],
-                    "result":     ["susceptibility","interpretation","sir","outcome","mic_interp","category","susceptibility_category"],
-                    "city":       ["location","hospital_city","site","region","hospital","centre","center","facility_city","facility"],
-                    "date":       ["test_date","report_date","collection_date","sample_date","datetime","timestamp","dt","collection_dt"],
-                }
-                rename_map = {}
-                for standard, aliases in col_aliases.items():
-                    if standard not in cols:
-                        for alias in aliases:
-                            if alias in cols:
-                                rename_map[alias] = standard
-                                break
-                if rename_map:
-                    csv_df = csv_df.rename(columns=rename_map)
-                    cols = set(csv_df.columns)
-
-                required_raw = {"city","organism","antibiotic","result","date"}
-                # ── FORMAT B: aggregated summary (antibiotic, resistant, susceptible, intermediate) ──
-                required_agg = {"antibiotic","resistant","susceptible","intermediate"}
-
-                if required_raw.issubset(cols):
-                    # Raw isolate format — merge directly
-                    csv_df["date"]       = pd.to_datetime(csv_df["date"], errors="coerce")
-                    csv_df["result"]     = csv_df["result"].str.strip().str.title()
-                    csv_df["organism"]   = csv_df["organism"].str.strip()
-                    csv_df["city"]       = csv_df["city"].str.strip()
-                    csv_df["antibiotic"] = csv_df["antibiotic"].str.strip()
-                    csv_df = csv_df[list(required_raw)]
-                    st.session_state.working_df = pd.concat(
-                        [st.session_state.working_df, csv_df], ignore_index=True
-                    )
-                    st.success(f"✅ CSV merged — {len(csv_df)} raw isolate rows added to dataset.")
-                    csv_uploaded = True
-
-                elif required_agg.issubset(cols):
-                    # Aggregated summary format — explode back into synthetic isolate rows
-                    orgs   = sorted(st.session_state.working_df["organism"].unique())
-                    cities = sorted(st.session_state.working_df["city"].unique())
-                    today  = pd.Timestamp.today().strftime("%Y-%m-%d")
-                    synth_rows = []
-                    for _, row in csv_df.iterrows():
-                        abx      = str(row["antibiotic"]).strip()
-                        total    = int(row.get("total isolates", 10)) if "total isolates" in csv_df.columns else 10
-                        r_count  = max(1, round(float(row["resistant"])   / 100 * total))
-                        s_count  = max(0, round(float(row["susceptible"]) / 100 * total))
-                        i_count  = max(0, total - r_count - s_count)
-                        import random, itertools
-                        random.seed(42)
-                        org  = random.choice(orgs)  if orgs  else "Unknown organism"
-                        city = random.choice(cities) if cities else "Unknown"
-                        for result, count in [("Resistant", r_count),("Susceptible", s_count),("Intermediate", i_count)]:
-                            for _ in range(count):
-                                synth_rows.append({"city": city,"organism": org,
-                                                   "antibiotic": abx,"result": result,
-                                                   "date": pd.to_datetime(today)})
-                    if synth_rows:
-                        synth_df = pd.DataFrame(synth_rows)
-                        st.session_state.working_df = pd.concat(
-                            [st.session_state.working_df, synth_df], ignore_index=True
-                        )
-                        st.success(
-                            f"✅ Aggregated summary CSV imported — {len(synth_df)} synthetic isolate rows "
-                            f"generated from {len(csv_df)} antibiotic entries and added to the dataset."
-                        )
-                        st.info(
-                            "ℹ️ This CSV contained pre-aggregated percentages (Resistant %, Susceptible %, "
-                            "Intermediate %), not raw isolate rows. Rows were reconstructed proportionally. "
-                            "For best results, upload a raw isolate CSV with columns: "
-                            "city, organism, antibiotic, result, date."
-                        )
-                        csv_uploaded = True
-                    else:
-                        st.error("CSV parsed but produced no rows. Please check the data.")
-                else:
-                    found = ", ".join(sorted(cols))
-                    st.error(
-                        f"**Unrecognised CSV format.**\n\n"
-                        f"Columns found: `{found}`\n\n"
-                        f"**Option A — Raw isolates CSV:** needs columns `city, organism, antibiotic, result, date`\n\n"
-                        f"**Option B — Summary CSV:** needs columns `antibiotic, resistant, susceptible, intermediate`"
-                    )
-            except Exception as e:
-                st.error(f"Could not read CSV: {e}")
-        else:
-            try:
-                raw_report = uploaded_file.read().decode("utf-8")
-            except Exception:
-                st.error("Could not read file. Please upload a valid UTF-8 .txt file.")
-    elif report_text_area.strip():
-        raw_report = report_text_area.strip()
-
+    # Everything below runs only on click — st.file_uploader keeps its file across
+    # reruns, so doing this unconditionally would re-merge the same CSV every rerun.
     if parse_btn:
-        if csv_uploaded:
-            pass  # CSV already merged above, nothing more to do
-        elif not raw_report.strip():
+        is_csv = uploaded_file is not None and uploaded_file.name.lower().endswith(".csv")
+        raw_report = ""
+        if uploaded_file is not None and not is_csv:
+            try:
+                raw_report = uploaded_file.getvalue().decode("utf-8")
+            except UnicodeDecodeError:
+                st.error("Could not read file. Please upload a valid UTF-8 .txt file.")
+        elif uploaded_file is None:
+            raw_report = report_text_area.strip()
+
+        if is_csv:
+            fingerprint = (uploaded_file.name, uploaded_file.size)
+            if fingerprint in st.session_state.get("merged_uploads", set()):
+                st.info(f"`{uploaded_file.name}` has already been added to the dataset in this session.")
+            else:
+                try:
+                    csv_df = standardize_columns(
+                        pd.read_csv(io.BytesIO(uploaded_file.getvalue()), encoding="utf-8-sig")
+                    )
+                    missing = missing_columns(csv_df)
+                    if missing:
+                        st.error(
+                            f"**Unrecognised CSV format.** Missing column(s): `{', '.join(missing)}`.\n\n"
+                            f"Columns found: `{', '.join(sorted(csv_df.columns))}`\n\n"
+                            f"Required: `city, organism, antibiotic, result, date` (one row per isolate test)."
+                        )
+                    else:
+                        csv_df, n_dropped = clean_records(csv_df)
+                        if csv_df.empty:
+                            st.error("No usable rows: the `result` column must contain S/I/R or "
+                                     "Resistant/Susceptible/Intermediate.")
+                        else:
+                            st.session_state.working_df = pd.concat(
+                                [st.session_state.working_df, csv_df], ignore_index=True
+                            )
+                            st.session_state.setdefault("merged_uploads", set()).add(fingerprint)
+                            st.success(f"CSV merged — {len(csv_df)} isolate rows added to the dataset.")
+                            if n_dropped:
+                                st.warning(f"{n_dropped} row(s) skipped because their result was not S/I/R.")
+                except Exception as e:
+                    st.error(f"Could not read CSV: {e}")
+
+        elif not raw_report:
             st.warning("Please paste a lab report or upload a .txt or .csv file first.")
         else:
             client = get_groq_client()
             if client is None:
-                st.error("❌ GROQ_API_KEY not found.")
-            else:
+                st.error("GROQ_API_KEY not found.")
+            elif ai_quota_ok():
+                today = pd.Timestamp.today().normalize()
                 with st.spinner("Parsing lab report with Groq…"):
                     try:
                         parse_prompt = f"""You are a clinical microbiology data extractor.
-Extract structured data from this lab report and return ONLY a valid JSON object — no markdown, no backticks, no explanation.
+Extract every antibiotic susceptibility result from this lab report and return ONLY a valid JSON array — no markdown, no backticks, no explanation.
 
-JSON format:
+Each element must be an object:
 {{
   "organism": "full organism name",
   "antibiotic": "antibiotic name",
   "result": "Resistant" or "Susceptible" or "Intermediate",
-  "city": "city name in Pakistan or Unknown",
-  "date": "YYYY-MM-DD or today's date if missing"
+  "city": "city name in Pakistan, or Unknown",
+  "date": "YYYY-MM-DD, or null if not stated"
 }}
 
-If multiple antibiotics are tested, return the MOST CLINICALLY SIGNIFICANT one (highest resistance concern).
-If information is missing, use reasonable defaults.
+Return one element per antibiotic tested. Do not invent results that are not in the report.
 
 LAB REPORT:
 {raw_report}"""
 
                         parse_response = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
+                            model=GROQ_MODEL,
                             messages=[{"role": "user", "content": parse_prompt}],
                             temperature=0.1,
-                            max_tokens=300,
+                            max_tokens=800,
                         )
-                        raw_json = parse_response.choices[0].message.content.strip()
-                        raw_json = raw_json.replace("```json", "").replace("```", "").strip()
-                        parsed = json.loads(raw_json)
+                        new_df, n_dropped = parse_llm_records(
+                            parse_response.choices[0].message.content, today=today
+                        )
 
-                        # Validate required keys
-                        required_keys = ["organism", "antibiotic", "result", "city", "date"]
-                        if all(k in parsed for k in required_keys):
+                        if new_df.empty:
+                            st.error("Parsing returned no valid results. Please check the report format.")
+                        else:
+                            rows_html = "".join(
+                                f'<div class="parsed-row">'
+                                f'<span class="parsed-key">{esc(r.antibiotic)}</span>'
+                                f'<span class="parsed-val" style="color:{COLORS[r.result]}">{esc(r.result)}</span>'
+                                f'<span class="parsed-val" style="color:#94a3b8">'
+                                f'{esc(r.organism)} · {esc(r.city)} · {r.date:%Y-%m-%d}</span></div>'
+                                for r in new_df.itertuples()
+                            )
                             st.markdown(f"""
 <div class="parsed-card">
   <div style="font-family:'Space Mono',monospace;color:var(--accent);font-size:0.78rem;
-              letter-spacing:1px;margin-bottom:12px;">✅ PARSED SUCCESSFULLY</div>
-  <div class="parsed-row"><span class="parsed-key">Organism</span><span class="parsed-val">{parsed['organism']}</span></div>
-  <div class="parsed-row"><span class="parsed-key">Antibiotic</span><span class="parsed-val">{parsed['antibiotic']}</span></div>
-  <div class="parsed-row"><span class="parsed-key">Result</span>
-    <span class="parsed-val" style="color:{'#ff6b6b' if parsed['result']=='Resistant' else '#00d4aa' if parsed['result']=='Susceptible' else '#ffd166'}">
-      {parsed['result']}</span></div>
-  <div class="parsed-row"><span class="parsed-key">City</span><span class="parsed-val">{parsed['city']}</span></div>
-  <div class="parsed-row"><span class="parsed-key">Date</span><span class="parsed-val">{parsed['date']}</span></div>
+              letter-spacing:1px;margin-bottom:12px;">PARSED {len(new_df)} RESULT(S)</div>
+  {rows_html}
 </div>
 """, unsafe_allow_html=True)
-
-                            # Append to session state dataset
-                            new_row = pd.DataFrame([{
-                                "city":       parsed["city"],
-                                "organism":   parsed["organism"],
-                                "antibiotic": parsed["antibiotic"],
-                                "result":     parsed["result"].strip().title(),
-                                "date":       pd.to_datetime(parsed["date"], errors="coerce"),
-                            }])
                             st.session_state.working_df = pd.concat(
-                                [st.session_state.working_df, new_row], ignore_index=True
+                                [st.session_state.working_df, new_df], ignore_index=True
                             )
-                            st.success("✅ Record added to dataset — charts above will update on next interaction.")
-                        else:
-                            st.error("Parsing returned incomplete data. Please check the report format.")
+                            st.success(f"{len(new_df)} record(s) added to the dataset — "
+                                       "charts will update on the next interaction.")
+                            if n_dropped:
+                                st.warning(f"{n_dropped} extracted result(s) skipped (result not S/I/R).")
                     except json.JSONDecodeError:
                         st.error("Could not parse JSON from Groq response. Try rephrasing the report.")
                     except Exception as e:
                         st.error(f"Error: {e}")
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # ── KPI cards ─────────────────────────────────────────────────────────────────
 total   = len(fdf)
@@ -668,7 +616,7 @@ with col1:
     else:
         org_stats = (
             fdf.groupby("organism")["result"]
-            .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
+            .apply(resistance_rate)
             .reset_index(name="resistance_rate")
             .sort_values("resistance_rate", ascending=True)
         )
@@ -700,7 +648,7 @@ with col2:
         trend = (
             fdf.set_index("date")["result"]
             .resample("2W")
-            .apply(lambda s: round((s == "Resistant").mean() * 100, 1) if len(s) else None)
+            .apply(lambda s: resistance_rate(s) if len(s) else None)
             .dropna()
             .reset_index(name="resistance_rate")
         )
@@ -756,24 +704,30 @@ with col4:
     if fdf.empty:
         st.info("No data matches the current filters — adjust the sidebar selections to see the heatmap.")
     else:
-        heat = (
-            fdf.groupby(["organism", "city"])["result"]
-            .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
-            .unstack(fill_value=0)
-        )
+        grp  = fdf.groupby(["organism", "city"])["result"]
+        # Cells with no isolates stay empty (NaN) instead of showing a misleading 0%
+        heat = grp.apply(resistance_rate).unstack()
+        heat_n = grp.size().unstack().reindex_like(heat).fillna(0).astype(int)
         heat.index = (heat.index
             .str.replace("Escherichia coli",        "E. coli")
             .str.replace("Klebsiella pneumoniae",    "K. pneumoniae")
             .str.replace("Streptococcus pneumoniae", "S. pneumoniae")
         )
+        cell_text = [
+            [("" if pd.isna(v) else f"{v}%" + ("*" if n < MIN_ISOLATES else ""))
+             for v, n in zip(row_v, row_n)]
+            for row_v, row_n in zip(heat.values, heat_n.values)
+        ]
         fig_heat = go.Figure(go.Heatmap(
             z=heat.values,
             x=heat.columns.tolist(),
             y=heat.index.tolist(),
             colorscale=[[0, "#0d2e26"], [0.5, "#ffd166"], [1, "#ff6b6b"]],
             zmin=0, zmax=100,
-            text=heat.values,
-            texttemplate="%{text}%",
+            text=cell_text,
+            customdata=heat_n.values,
+            hovertemplate="%{y} · %{x}<br>Resistance: %{z}%<br>Isolates: %{customdata}<extra></extra>",
+            texttemplate="%{text}",
             textfont=dict(family="Space Mono", size=11),
             colorbar=dict(ticksuffix="%", tickfont=dict(family="Space Mono", size=10)),
         ))
@@ -801,21 +755,26 @@ else:
         if col not in abx_summary.columns:
             abx_summary[col] = 0.0
     abx_summary = abx_summary.rename(columns={"antibiotic": "Antibiotic"})
-    abx_summary["Total Isolates"] = fdf.groupby("antibiotic").size().values
+    abx_summary["Total Isolates"] = abx_summary["Antibiotic"].map(fdf.groupby("antibiotic").size())
+    abx_summary["Note"] = abx_summary["Total Isolates"].map(
+        lambda n: f"Low confidence (n<{MIN_ISOLATES})" if n < MIN_ISOLATES else ""
+    )
     abx_summary = abx_summary.sort_values("Resistant", ascending=False)
 
+    # High resistance is bad (red); high susceptibility is good (green).
     def color_resistant(val):
-        if isinstance(val, float):
-            if val >= 70:   return "color: #ff6b6b; font-weight: 600"
-            elif val >= 50: return "color: #ffd166"
-            else:           return "color: #00d4aa"
-        return ""
+        if val >= 70:   return "color: #ff6b6b; font-weight: 600"
+        elif val >= 50: return "color: #ffd166"
+        return "color: #00d4aa"
+
+    def color_susceptible(val):
+        if val >= 70:   return "color: #00d4aa; font-weight: 600"
+        elif val >= 50: return "color: #ffd166"
+        return "color: #ff6b6b"
 
     styled = (
-        abx_summary[["Antibiotic", "Resistant", "Susceptible", "Intermediate", "Total Isolates"]]
+        abx_summary[["Antibiotic", "Resistant", "Susceptible", "Intermediate", "Total Isolates", "Note"]]
         .style
-        .map(color_resistant, subset=["Resistant", "Susceptible", "Intermediate"])
-        .format({"Resistant": "{:.1f}%", "Susceptible": "{:.1f}%", "Intermediate": "{:.1f}%"})
         .set_properties(**{
             "background-color": "#111827",
             "color":            "#e2e8f0",
@@ -823,6 +782,9 @@ else:
             "font-family":      "DM Sans, sans-serif",
             "font-size":        "0.9rem",
         })
+        .map(color_resistant,   subset=["Resistant"])
+        .map(color_susceptible, subset=["Susceptible"])
+        .format({"Resistant": "{:.1f}%", "Susceptible": "{:.1f}%", "Intermediate": "{:.1f}%"})
         .set_table_styles([
             {"selector": "th", "props": [
                 ("background-color", "#0a0e1a"),
@@ -842,12 +804,12 @@ else:
 # TASK 3 — Pakistan City Choropleth / Bubble Map
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.markdown('<p class="section-title">🗺 Resistance Intensity Map — Pakistan Cities</p>',
+st.markdown('<p class="section-title">Resistance Intensity Map — Pakistan Cities</p>',
             unsafe_allow_html=True)
 
 map_df = (
     st.session_state.working_df.groupby("city")["result"]
-    .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
+    .apply(resistance_rate)
     .reset_index(name="resistance_rate")
 )
 map_df["lat"] = map_df["city"].map(lambda c: CITY_COORDS.get(c, {}).get("lat"))
@@ -875,10 +837,10 @@ if not map_df.empty:
             colorscale=[[0, "#0d2e26"], [0.4, "#ffd166"], [1, "#ff6b6b"]],
             cmin=0, cmax=100,
             colorbar=dict(
-                title="Resistance %",
+                title=dict(text="Resistance %",
+                           font=dict(family="Space Mono", size=10, color="#64748b")),
                 ticksuffix="%",
                 tickfont=dict(family="Space Mono", size=10, color="#e2e8f0"),
-                titlefont=dict(family="Space Mono", size=10, color="#64748b"),
                 bgcolor="rgba(17,24,39,0.8)",
                 bordercolor="#1e2d40",
             ),
@@ -917,10 +879,12 @@ else:
 # TASK 1 — AI Weekly Bulletin Generator
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.markdown('<p class="section-title">📋 AI Weekly AMR Bulletin Generator</p>',
+st.markdown('<p class="section-title">AI AMR Bulletin Generator</p>',
             unsafe_allow_html=True)
 
-bulletin_col1, bulletin_col2 = st.columns([2, 1])
+BULLETIN_WINDOWS = {"Last 7 days": 7, "Last 30 days": 30, "Last 90 days": 90, "All data": None}
+
+bulletin_col1, bulletin_col2, bulletin_col3 = st.columns([2, 1.3, 1])
 with bulletin_col1:
     bulletin_city = st.selectbox(
         "Select City for Bulletin",
@@ -928,107 +892,126 @@ with bulletin_col1:
         key="bulletin_city",
     )
 with bulletin_col2:
+    bulletin_window = st.selectbox(
+        "Period (ending at latest sample)",
+        list(BULLETIN_WINDOWS.keys()),
+        index=1,
+        key="bulletin_window",
+    )
+with bulletin_col3:
     st.markdown("<br>", unsafe_allow_html=True)
-    gen_bulletin = st.button("📄 GENERATE BULLETIN", key="gen_bulletin_btn", use_container_width=True)
+    gen_bulletin = st.button("GENERATE BULLETIN", key="gen_bulletin_btn", use_container_width=True)
 
 if gen_bulletin:
     client = get_groq_client()
+    city_data = st.session_state.working_df[
+        st.session_state.working_df["city"] == bulletin_city
+    ].dropna(subset=["date"])
+    days = BULLETIN_WINDOWS[bulletin_window]
+    if days is not None and not city_data.empty:
+        period_end   = city_data["date"].max()
+        period_start = period_end - pd.Timedelta(days=days - 1)
+        city_data    = city_data[city_data["date"] >= period_start]
+
     if client is None:
-        st.error("❌ GROQ_API_KEY not found. Add it to Streamlit → Secrets.")
-    else:
-        city_data = st.session_state.working_df[
-            st.session_state.working_df["city"] == bulletin_city
-        ]
-        if city_data.empty:
-            st.warning(f"No data available for {bulletin_city}.")
-        else:
-            # Build data summary for the city
-            total_city    = len(city_data)
-            res_rate_city = round((city_data["result"] == "Resistant").mean() * 100, 1)
+        st.error("GROQ_API_KEY not found. Add it to Streamlit → Secrets.")
+    elif city_data.empty:
+        st.warning(f"No dated isolates for {bulletin_city} in the selected period.")
+    elif ai_quota_ok():
+        period_label = (f"{city_data['date'].min():%d %b %Y} – {city_data['date'].max():%d %b %Y}")
+        total_city    = len(city_data)
+        res_rate_city = resistance_rate(city_data["result"])
+        abx_rates = rate_table(city_data, "antibiotic")
+        org_rates = rate_table(city_data, "organism")
+        failing_abx   = abx_rates[abx_rates["rate"] >= 60]
+        critical_orgs = org_rates[org_rates["rate"] >= 70]
 
-            abx_rates = (
-                city_data.groupby("antibiotic")["result"]
-                .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
-                .sort_values(ascending=False)
+        def fmt(tbl):
+            if tbl.empty:
+                return "  None"
+            return "\n".join(
+                f"  {k}: {r.rate}% (n={r.n}{', LOW SAMPLE' if r.n < MIN_ISOLATES else ''})"
+                for k, r in tbl.iterrows()
             )
-            org_rates = (
-                city_data.groupby("organism")["result"]
-                .apply(lambda s: round((s == "Resistant").mean() * 100, 1))
-                .sort_values(ascending=False)
-            )
-            failing_abx = abx_rates[abx_rates >= 60].to_dict()
-            critical_orgs = org_rates[org_rates >= 70].to_dict()
 
-            bulletin_data = f"""
+        bulletin_data = f"""
 CITY: {bulletin_city}
+PERIOD: {period_label}
 TOTAL ISOLATES: {total_city}
 OVERALL RESISTANCE RATE: {res_rate_city}%
 
 ANTIBIOTIC RESISTANCE RATES:
-{chr(10).join(f'  {k}: {v}%' for k, v in abx_rates.items())}
+{fmt(abx_rates)}
 
 ORGANISM RESISTANCE RATES:
-{chr(10).join(f'  {k}: {v}%' for k, v in org_rates.items())}
+{fmt(org_rates)}
 
-ANTIBIOTICS FAILING (>60% resistance):
-{chr(10).join(f'  {k}: {v}%' for k, v in failing_abx.items()) if failing_abx else '  None'}
+ANTIBIOTICS FAILING (>=60% resistance):
+{fmt(failing_abx)}
 
-CRITICAL ORGANISMS (>70% resistance):
-{chr(10).join(f'  {k}: {v}%' for k, v in critical_orgs.items()) if critical_orgs else '  None'}
+CRITICAL ORGANISMS (>=70% resistance):
+{fmt(critical_orgs)}
 """
 
-            bulletin_prompt = f"""You are a senior clinical microbiologist generating a formal weekly AMR bulletin for {bulletin_city}, Pakistan.
+        bulletin_prompt = f"""You are a senior clinical microbiologist generating a formal AMR surveillance bulletin for {bulletin_city}, Pakistan, covering {period_label}.
 
-Using the surveillance data below, write a structured 1-page bulletin with these EXACT sections:
+Using the surveillance data below, write a structured 1-page bulletin in Markdown with these EXACT sections:
 
 1. EXECUTIVE SUMMARY (2-3 sentences overview of the resistance situation)
-2. ANTIBIOTICS FAILING (list antibiotics >60% resistance with clinical implication for each)
-3. EMPIRIC TREATMENT RECOMMENDATIONS (by infection type: UTI, pneumonia, sepsis, wound — suggest alternatives when primary agents are failing)
-4. ⚠ RESISTANCE ALERT (critical organisms requiring infection control attention)
+2. ANTIBIOTICS FAILING (list antibiotics >=60% resistance with clinical implication for each)
+3. EMPIRIC TREATMENT CONSIDERATIONS (by infection type: UTI, pneumonia, sepsis, wound — suggest alternatives when primary agents are failing)
+4. RESISTANCE ALERT (critical organisms requiring infection control attention)
 5. RECOMMENDED ACTIONS (3-4 bullet points for the hospital pharmacy/ID team)
 
 Use clear clinical language. Be direct and actionable. Reference WHO GLASS Pakistan 2023 benchmarks where relevant.
+Rates marked LOW SAMPLE come from fewer than {MIN_ISOLATES} isolates: state that they are uncertain and do not base strong recommendations on them.
+Use only the numbers given below; do not invent data.
 
 SURVEILLANCE DATA FOR {bulletin_city.upper()}:
 {bulletin_data}"""
 
-            with st.spinner(f"Generating AMR bulletin for {bulletin_city}…"):
-                try:
-                    bulletin_response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[{"role": "user", "content": bulletin_prompt}],
-                        temperature=0.3,
-                        max_tokens=1000,
-                    )
-                    bulletin_text = bulletin_response.choices[0].message.content
+        with st.spinner(f"Generating AMR bulletin for {bulletin_city}…"):
+            try:
+                bulletin_response = client.chat.completions.create(
+                    model=GROQ_MODEL,
+                    messages=[{"role": "user", "content": bulletin_prompt}],
+                    temperature=0.3,
+                    max_tokens=1200,
+                )
+                bulletin_text = bulletin_response.choices[0].message.content
 
-                    st.markdown(f"""
+                st.markdown(f"""
 <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:#64748b;
             letter-spacing:1px;margin-bottom:8px;">
-  AMR WEEKLY BULLETIN · {bulletin_city.upper()} · {pd.Timestamp.now().strftime('%d %b %Y').upper()}
+  AMR BULLETIN · {esc(bulletin_city.upper())} · {esc(period_label.upper())} · {total_city} ISOLATES
 </div>
-<div class="bulletin-box">{bulletin_text}</div>
 """, unsafe_allow_html=True)
+                st.warning("AI-generated decision support — not a prescription. Verify against local "
+                           "antibiograms and consult the ID/pharmacy team before changing therapy.")
+                with st.container(border=True):
+                    # Plain st.markdown (no raw HTML) so the model's Markdown renders and
+                    # any HTML in the response is not executed.
+                    st.markdown(bulletin_text)
 
-                    if critical_orgs:
-                        alert_html = "".join(
-                            f"<b>{org}</b> — {rate}% resistance<br>"
-                            for org, rate in critical_orgs.items()
-                        )
-                        st.markdown(f"""
+                if not critical_orgs.empty:
+                    alert_html = "".join(
+                        f"<b>{esc(org)}</b> — {r.rate}% resistance (n={r.n})<br>"
+                        for org, r in critical_orgs.iterrows()
+                    )
+                    st.markdown(f"""
 <div class="alert-box">
-  ⚠ <b>CRITICAL RESISTANCE ALERT — {bulletin_city.upper()}</b><br><br>
+  <b>CRITICAL RESISTANCE ALERT — {esc(bulletin_city.upper())}</b><br><br>
   {alert_html}
   Immediate infection control review recommended for carbapenem-resistant and ESBL-producing organisms.
 </div>
 """, unsafe_allow_html=True)
 
-                except Exception as e:
-                    st.error(f"Groq API error: {e}")
+            except Exception as e:
+                st.error(f"Groq API error: {e}")
 
 # ── Groq Chatbot ──────────────────────────────────────────────────────────────
 st.markdown("---")
-st.markdown('<p class="section-title">🔬 Lab Report Interpreter — Powered by Groq</p>',
+st.markdown('<p class="section-title">Lab Report Interpreter — Powered by Groq</p>',
             unsafe_allow_html=True)
 
 if "chat_history" not in st.session_state:
@@ -1037,7 +1020,7 @@ if "chat_history" not in st.session_state:
          "content": ("Hello, Doctor. I'm your AMR Guardian assistant.\n\n"
                      "Paste a lab report or ask me about resistance patterns — "
                      "I'll interpret results using WHO Pakistan 2023 resistance data. "
-                     "For example: *'Patient has Klebsiella pneumoniae, Ceftriaxone MIC 32 μg/mL'*")}
+                     "For example: 'Patient has Klebsiella pneumoniae, Ceftriaxone MIC 32 μg/mL'")}
     ]
 
 resist_summary = (
@@ -1048,7 +1031,7 @@ resist_summary = (
 system_prompt = f"""You are AMR Guardian, an expert clinical microbiology AI assistant for Pakistani hospitals.
 You interpret lab reports and antimicrobial susceptibility test (AST) results, providing actionable clinical guidance.
 
-LIVE DATASET SUMMARY (amr_data.csv, WHO Pakistan 2023):
+CURRENT DATASET SUMMARY (demo data sampled from WHO GLASS Pakistan 2023 rates, plus any user uploads):
 {chr(10).join(f'  • {k}: {v}' for k, v in resist_summary.items())}
 
 KEY WHO PAKISTAN 2023 RESISTANCE RATES:
@@ -1072,10 +1055,10 @@ chat_html = '<div class="chat-wrap" id="chat-scroll">'
 for msg in st.session_state.chat_history:
     role = msg["role"]
     avatar_svg = '''<svg width="18" height="18" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="22" fill="#0d2e26" stroke="#00d4aa" stroke-width="2"/><path d="M24 18 C24 22 28 24 28 28 C28 32 24 34 24 38 C24 42 28 44 28 46" stroke="#00d4aa" stroke-width="2.5" stroke-linecap="round" fill="none"/><path d="M40 18 C40 22 36 24 36 28 C36 32 40 34 40 38 C40 42 36 44 36 46" stroke="#ffd166" stroke-width="2.5" stroke-linecap="round" fill="none"/><line x1="24" y1="28" x2="40" y2="28" stroke="#00d4aa" stroke-width="1.5" opacity="0.8"/><line x1="24" y1="36" x2="40" y2="36" stroke="#ffd166" stroke-width="1.5" opacity="0.8"/><circle cx="32" cy="32" r="2.5" fill="#00d4aa"/></svg>'''
-    avatar   = avatar_svg if role == "assistant" else "👨‍⚕️"
+    avatar   = avatar_svg if role == "assistant" else "Dr"
     av_class = "bot" if role == "assistant" else "user-av"
     side     = "assistant" if role == "assistant" else "user"
-    content  = msg["content"].replace("\n", "<br>")
+    content  = esc(msg["content"]).replace("\n", "<br>")
     chat_html += f"""
     <div class="msg {side}">
       <div class="avatar {av_class}">{avatar}</div>
@@ -1083,6 +1066,11 @@ for msg in st.session_state.chat_history:
     </div>"""
 chat_html += '</div>'
 st.markdown(chat_html, unsafe_allow_html=True)
+
+# A widget's value can only be reset before it is created in a run, so clearing the
+# input after a successful send is done via a flag on the following rerun.
+if st.session_state.pop("clear_chat_input", False):
+    st.session_state.chat_input = ""
 
 col_inp, col_btn = st.columns([5, 1])
 with col_inp:
@@ -1095,7 +1083,7 @@ with col_inp:
     )
 with col_btn:
     st.markdown("<br>", unsafe_allow_html=True)
-    send = st.button("⬆ SEND", use_container_width=True)
+    send = st.button("SEND", use_container_width=True)
 
 if send:
     if not user_input.strip():
@@ -1103,28 +1091,31 @@ if send:
     else:
         client = get_groq_client()
         if client is None:
-            st.error("❌ GROQ_API_KEY not found. Add it to Streamlit → Advanced Settings → Secrets.")
-        else:
+            st.error("GROQ_API_KEY not found. Add it to Streamlit → Advanced Settings → Secrets.")
+        elif ai_quota_ok():
             st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
-            with st.spinner("Analyzing with Groq llama-3.3-70b…"):
+            with st.spinner(f"Analyzing with Groq {GROQ_MODEL}…"):
                 try:
+                    # Send only the most recent messages to stay within the context window.
+                    recent = st.session_state.chat_history[-CHAT_HISTORY_SENT:]
                     messages_payload = [{"role": "system", "content": system_prompt}] + [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.chat_history
+                        {"role": m["role"], "content": m["content"]} for m in recent
                     ]
                     response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model=GROQ_MODEL,
                         messages=messages_payload,
                         temperature=0.3,
                         max_tokens=700,
                     )
                     reply = response.choices[0].message.content
                     st.session_state.chat_history.append({"role": "assistant", "content": reply})
+                    st.session_state.clear_chat_input = True
                     st.rerun()
                 except Exception as e:
+                    st.session_state.chat_history.pop()  # drop the unanswered question
                     st.error(f"Groq API error: {e}")
 
-if st.button("🗑 Clear Chat", key="clear_chat"):
+if st.button("Clear Chat", key="clear_chat"):
     st.session_state.chat_history = st.session_state.chat_history[:1]
     st.rerun()
 
@@ -1136,7 +1127,7 @@ st.markdown("""
     AMR Guardian · WHO GLASS Pakistan 2023 · Built with Streamlit + Groq
   </span>
   <span style="font-family:Space Mono,monospace;font-size:0.72rem;color:#334155">
-    ⚠ For clinical decision support only — not a substitute for ID consultation
+    For clinical decision support only — not a substitute for ID consultation
   </span>
 </div>
 """, unsafe_allow_html=True)

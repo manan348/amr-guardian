@@ -1,0 +1,24 @@
+organism,antibiotic,percent_resistant,n_resistant,n_tested
+Acinetobacter spp.,Colistin,2.523659,24,951
+Acinetobacter spp.,Gentamicin,55.832330,2635,4705
+Acinetobacter spp.,Meropenem,67.754641,3346,4938
+Acinetobacter spp.,Minocycline,3.416856,30,878
+Klebsiella pneumoniae,Cefepime,77.083333,370,480
+Klebsiella pneumoniae,Ceftriaxone,84.190384,3365,3936
+Klebsiella pneumoniae,Ciprofloxacin,65.782866,2853,4124
+Klebsiella pneumoniae,Co-trimoxazole,75.476190,1268,1680
+Klebsiella pneumoniae,Colistin,21.739130,100,460
+Klebsiella pneumoniae,Meropenem,59.455073,3100,5433
+Streptococcus pneumoniae,Ampicillin,31.395349,81,258
+Streptococcus pneumoniae,Ceftriaxone,0.000000,0,260
+Streptococcus pneumoniae,Co-trimoxazole,87.012987,134,154
+Salmonella spp.,Ceftriaxone,49.153393,99,199
+Salmonella spp.,Ciprofloxacin,24.080622,30,115
+Salmonella spp.,Imipenem,0.000000,0,59
+Salmonella spp.,Meropenem,0.000000,0,84
+Escherichia coli,Cefepime,79.483696,585,736
+Escherichia coli,Ceftriaxone,83.044675,3758,4475
+Escherichia coli,Ciprofloxacin,75.959443,3405,4444
+Escherichia coli,Co-trimoxazole,71.433654,2008,2811
+Escherichia coli,Colistin,1.449275,8,552
+Escherichia coli,Meropenem,24.118245,1750,7269

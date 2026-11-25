@@ -1,0 +1,7 @@
+{
+  "n_pairs": 23,
+  "median_abs_diff_pp": 5.3,
+  "max_abs_diff_pp": 28.3,
+  "max_abs_diff_pair": "Klebsiella pneumoniae / Colistin",
+  "pairs_reference_inside_ci": 22
+}

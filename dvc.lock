@@ -1,0 +1,117 @@
+schema: '2.0'
+stages:
+  generate_data:
+    cmd: python -m pipeline.generate_data
+    deps:
+    - path: amr_utils.py
+      hash: md5
+      md5: d4040da41c71e256b648350e83abc813
+      size: 8403
+    - path: data/glass_rates_pakistan_2023.csv
+      hash: md5
+      md5: ef994a54eec49569f30fd89cc798a782
+      size: 1184
+    - path: pipeline/common.py
+      hash: md5
+      md5: 1afee5173b7da2a426b970a3e12403db
+      size: 767
+    - path: pipeline/generate_data.py
+      hash: md5
+      md5: 49eb063ba3c3442ef048deba912ffce6
+      size: 624
+    params:
+      params.yaml:
+        data:
+          n_rows: 300
+          seed: 42
+          intermediate_share: 0.1
+          cities:
+          - Karachi
+          - Lahore
+          - Islamabad
+          - Peshawar
+          - Quetta
+          - Rawalpindi
+          - Faisalabad
+          - Multan
+    outs:
+    - path: amr_data.csv
+      hash: md5
+      md5: cc7f4af156796f2c03435bcc7f0c8681
+      size: 18510
+  antibiogram:
+    cmd: python -m pipeline.antibiogram
+    deps:
+    - path: amr_data.csv
+      hash: md5
+      md5: cc7f4af156796f2c03435bcc7f0c8681
+      size: 18510
+    - path: amr_utils.py
+      hash: md5
+      md5: d4040da41c71e256b648350e83abc813
+      size: 8403
+    - path: pipeline/antibiogram.py
+      hash: md5
+      md5: 8a0468ec8a4ae95e613fc87c151ee137
+      size: 2025
+    - path: pipeline/common.py
+      hash: md5
+      md5: 1afee5173b7da2a426b970a3e12403db
+      size: 767
+    params:
+      params.yaml:
+        antibiogram:
+          min_isolates: 30
+    outs:
+    - path: metrics/antibiogram.json
+      hash: md5
+      md5: 7bb4a93d20035902cddf6a1d5b7e05c1
+      size: 110
+    - path: outputs/antibiogram_by_city.csv
+      hash: md5
+      md5: 4277c00346728615f5ac7508623d8a4f
+      size: 6752
+    - path: outputs/antibiogram_counts.csv
+      hash: md5
+      md5: 43a4c8020bcbf33922b9a926a8b65516
+      size: 366
+    - path: outputs/antibiogram_global.csv
+      hash: md5
+      md5: ba01dc6e871c73a19d62ddaba895af35
+      size: 361
+    - path: outputs/antibiogram_heatmap.png
+      hash: md5
+      md5: d2e6a843b1cc6be35990cb6b3ba4983b
+      size: 117062
+  validate:
+    cmd: python -m pipeline.validate
+    deps:
+    - path: amr_data.csv
+      hash: md5
+      md5: cc7f4af156796f2c03435bcc7f0c8681
+      size: 18510
+    - path: amr_utils.py
+      hash: md5
+      md5: d4040da41c71e256b648350e83abc813
+      size: 8403
+    - path: data/glass_rates_pakistan_2023.csv
+      hash: md5
+      md5: ef994a54eec49569f30fd89cc798a782
+      size: 1184
+    - path: pipeline/common.py
+      hash: md5
+      md5: 1afee5173b7da2a426b970a3e12403db
+      size: 767
+    - path: pipeline/validate.py
+      hash: md5
+      md5: 8929da4ef8f17deddcb9681045a5a7ed
+      size: 1008
+    outs:
+    - path: metrics/demo_vs_who.csv
+      hash: md5
+      md5: a514778a8d2b064b8775b186dca641e8
+      size: 1530
+    - path: metrics/validation.json
+      hash: md5
+      md5: c20cd52c5b922e6dc085bda3c3f32ecf
+      size: 170

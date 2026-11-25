@@ -1,0 +1,4 @@
+# Keep LF line endings on every OS so DVC file hashes (and the reproducibility test)
+# are identical on Windows, macOS, Linux and Hugging Face.
+* text=auto eol=lf
+*.png binary

@@ -1,0 +1,55 @@
+stages:
+  generate_data:
+    cmd: python -m pipeline.generate_data
+    deps:
+      - pipeline/generate_data.py
+      - pipeline/common.py
+      - amr_utils.py
+      - data/glass_rates_pakistan_2023.csv
+    params:
+      - data
+    outs:
+      - amr_data.csv:
+          cache: false
+
+  antibiogram:
+    cmd: python -m pipeline.antibiogram
+    deps:
+      - pipeline/antibiogram.py
+      - pipeline/common.py
+      - amr_utils.py
+      - amr_data.csv
+    params:
+      - antibiogram
+    outs:
+      - outputs/antibiogram_global.csv
+      - outputs/antibiogram_counts.csv
+      - outputs/antibiogram_by_city.csv
+      - outputs/antibiogram_heatmap.png
+    metrics:
+      - metrics/antibiogram.json:
+          cache: false
+
+  validate:
+    cmd: python -m pipeline.validate
+    deps:
+      - pipeline/validate.py
+      - pipeline/common.py
+      - amr_utils.py
+      - amr_data.csv
+      - data/glass_rates_pakistan_2023.csv
+    metrics:
+      - metrics/validation.json:
+          cache: false
+    plots:
+      - metrics/demo_vs_who.csv:
+          cache: false
+          x: reference_rate
+          y: observed_rate
+          template: scatter
+          title: Demo-data resistance vs. WHO GLASS Pakistan 2023
+          x_label: WHO GLASS rate (%)
+          y_label: Demo dataset rate (%)
+
+plots:
+  - outputs/antibiogram_heatmap.png
